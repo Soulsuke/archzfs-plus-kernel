@@ -1,0 +1,207 @@
+#! /usr/bin/env ruby
+
+require "fileutils"
+require "open-uri"
+require "pathname"
+require "ruby-progressbar"
+require "xz"
+require_relative "lib/arch_kernel.rb"
+
+
+
+###############################################################################
+### Utility functions                                                       ###
+###############################################################################
+
+# Turns a given text into a hashmap of packages.
+def text_to_pkgs( text, regexp )
+  return text
+    .split
+    .grep( regexp )
+    .uniq
+    .sort
+    .map { |v| v.split "=" }
+    .map { |v| [ v[ 0 ], ArchKernel.new( "#{v[ 0 ]}=#{v[ 1 ]}" ) ] }
+    .to_h
+end
+
+# Downloader with progress bar.
+def download_with_progressbar( url )
+  file = url.split( "/" ).last
+
+  puts "Downloading '#{file}'..."
+
+  bar = ProgressBar.create starting_at: 0,
+    total: nil,
+    format: "  > %a%e %B %p%% %r KB/sec",
+    rate_scale: lambda { |rate| rate / 1024 }
+ 
+  return URI.open url,
+    content_length_proc: Proc.new { |content_length|
+      bar.total = content_length
+    },
+    progress_proc: Proc.new { |bytes_transferred|
+      if bar.total and bar.total < bytes_transferred then
+        bar.total = nil
+      end
+      bar.progress = bytes_transferred
+    }
+end
+
+# Updates the current packages' file.
+def update_current( packages )
+  @current_pkgs_file.open "w" do |f|
+    packages.uniq.sort.each do |p|
+      f.puts "#{p}"
+    end
+  end
+end
+
+
+
+###############################################################################
+### Main logic                                                              ###
+###############################################################################
+
+### Current versions retrieval
+###############################################################################
+
+# Get the base path:
+base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
+
+# Repository's path:
+repo = "#{base}/repo/zfs-kernels"
+
+# Database name:
+FileUtils.mkpath repo
+database = "#{repo}/zfs-kernels.db.tar.xz"
+
+# Get the kernels' configuration:
+config = File.open( "#{base}/kernels.conf" ).read.split.grep /^linux/
+
+# Current packages' file:
+@current_pkgs_file = Pathname.new "#{base}/.current"
+
+# Current packages':
+current_pkgs = Hash.new
+
+# If the file exists, read its contents:
+if @current_pkgs_file.exist? then
+  current_pkgs = text_to_pkgs @current_pkgs_file.read, /^linux.*/
+  puts "Current packages: #{current_pkgs.values.join " "}"
+end
+
+# Delete any current package which has been removed from the config and
+# remove it from the database:
+(current_pkgs.keys - config).each do |d|
+  puts "Removing package '#{d}'..."
+  [ "#{d}-headers", d ].each do |p|
+    `repo-remove #{database} #{p}`
+    Dir[ "#{repo}/#{p}-[0-9].*" ].map { |f| FileUtils.rm_rf f }
+  end
+end
+
+### Available versions retrieval
+###############################################################################
+
+# If the file is new enough, just quit:
+if @current_pkgs_file.exist? and
+   (age = Time.now - @current_pkgs_file.ctime) < 3600 and
+   ARGV[ 0 ] != "--force"
+then
+  # Update the current packages' file:
+  update_current current_pkgs.select { |k,v| config.include? k }.values
+  puts "Last check happened #{age.to_i} seconds ago, nothing to do."
+  exit 0
+end
+
+
+# If the configuration is empty, this stays empty as well:
+if config.empty? then
+  available_pkgs = Hash.new
+
+# Otherwise find the available packages:
+else
+  available_pkgs = text_to_pkgs(
+     XZ.decompress(
+       download_with_progressbar(
+         "http://archzfs.com/archzfs/x86_64/archzfs.db"
+       ).read
+    ),
+    /(#{config.join "|"})=/
+  )
+end
+puts "  > Available packages: #{available_pkgs.values.join " "}"
+
+### Find packages to download and to delete
+###############################################################################
+
+to_delete = Array.new
+to_download = Array.new
+to_be_kept = Array.new
+
+available_pkgs.each do |k,v|
+  # If this package is not present in the current ones, it has to be
+  # downloaded:
+  if !current_pkgs.key? k then
+    to_download << v
+
+  # If the available version is greater than the current one, it has to be
+  # downloaded and the old one has to be deleted:
+  elsif v > current_pkgs[ k ] then
+    to_download << v
+    to_delete << current_pkgs[ k ]
+
+  # Everything else should be kept as it is:
+  else
+    to_be_kept << current_pkgs[ k ]
+  end
+end
+
+### Update the repository
+###############################################################################
+
+# If there's nothing to download or delete:
+if to_delete.empty? and to_download.empty? then
+  # Update the file's ctime, just to avoid issues:
+  FileUtils.touch @current_pkgs_file
+
+  # Show a message and quit:
+  puts "Already up to date, nothing to do."
+
+# Else, it's update time:
+else
+  # Delete the outdated packages:
+  to_delete.map { |d| d.packages.values.flatten }
+    .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
+
+  # Update the repository:
+  to_download.each do |d|
+    d.packages.each do |name, file_names|
+      file_names.each do |file_name|
+        # Download the package:
+        File.open "#{repo}/#{file_name}", "wb" do |f|
+          f.write(
+            download_with_progressbar(
+              "https://archive.archlinux.org/packages/l/#{name}/#{file_name}"
+            ).read
+          )
+
+          # Add it to the repo if needed:
+          unless file_name =~ /.sig$/ then
+            puts "Adding '#{file_name}' to 'zfs-kernels'..."
+            `repo-add #{database} #{repo}/#{file_name}`
+          end
+        end
+      end
+    end
+  end
+end
+
+# Update the current packages' file:
+update_current to_download + to_be_kept
+
+# Fix repo permissions:
+`find "#{repo}" -type d -exec chmod 755 '{}' \\;`
+`find "#{repo}" -type f -exec chmod 644 '{}' \\;`
+

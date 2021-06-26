@@ -1,0 +1,5 @@
+*.sw[op]
+*~
+.current
+repo/zfs-kernels
+
