@@ -14,8 +14,8 @@ They can be installed with `gem install ruby-progressbar ruby-xz`.
 
 
 ### Usage
-Simply running `update_repo.rb` will download all the configured kernel
-packages within the `repo` subfolder.  
+Simply running `zfs-kernels-update-repo` will download all the configured
+kernel packages within the `repo` subfolder.  
 There's an hardcoded value of 3600 seconds between actual refreshes, to
 avoid putting useless strain on archzfs' repo. However, should it be necessary,
 it can be bypassed using the parameter `--force`.  
