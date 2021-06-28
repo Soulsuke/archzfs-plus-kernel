@@ -172,7 +172,7 @@ if to_delete.empty? and to_download.empty? then
 # Else, it's update time:
 else
   # Delete the outdated packages:
-  to_delete.map { |d| d.packages.values.flatten }
+  to_delete.map { |d| d.packages.values.flatten }.flatten
     .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
 
   # Update the repository:
