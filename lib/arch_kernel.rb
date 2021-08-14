@@ -23,7 +23,9 @@ class ArchKernel
     string = string.split "="
     @name = string[ 0 ]
     @version = string[ 1 ]
-    @version_int = @version.scan( /[0-9]+/ ).join
+    @version_int = @version.scan( /[0-9]+/ )
+      .map { |e| "0" * (3 - e.length) + e }
+      .join
   end
 
 
