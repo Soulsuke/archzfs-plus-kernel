@@ -26,6 +26,7 @@ class ArchKernel
     @version_int = @version.scan( /[0-9]+/ )
       .map { |e| "0" * (3 - e.length) + e }
       .join
+      .to_i
   end
 
 
