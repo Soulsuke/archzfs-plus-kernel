@@ -24,7 +24,11 @@ class ArchKernel
     @name = string[ 0 ]
     @version = string[ 1 ]
     @version_int = @version.scan( /[0-9]+/ )
-      .map { |e| "0" * (3 - e.length) + e }
+    while @version_int.length < 5 do
+      @version_int << "0"
+    end
+    @version_int = @version_int
+      .map { |v| "0" * (3 - v.length) + v }
       .join
       .to_i
   end
