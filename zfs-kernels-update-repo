@@ -15,14 +15,48 @@ require_relative "lib/arch_kernel.rb"
 
 # Turns a given text into a hashmap of packages.
 def text_to_pkgs( text, regexp )
-  return text
-    .split
-    .grep( regexp )
-    .uniq
-    .sort
-    .map { |v| v.split "=" }
-    .map { |v| [ v[ 0 ], ArchKernel.new( "#{v[ 0 ]}=#{v[ 1 ]}" ) ] }
-    .to_h
+  # Return value container:
+  ret = Hash.new
+
+  # Find the available ArchKernels:
+  text.split
+      .grep( regexp )
+      .uniq
+      .sort
+      .map { |v| ArchKernel.new v }
+      .each do |k|
+    ret[ k.name ] = Array.new unless ret.key? k.name
+    ret[ k.name ] << k
+  end
+
+  # Parse the kernels a little:
+  ret.each do |kernel, versions|
+    # If we only have one alternative, simply use it:
+    if versions.length == 1 then
+      ret[ kernel ] = versions[ 0 ]
+
+    # Else, prompt the user which one to choose:
+    else
+      # Keep asking until we get a good input:
+      loop do
+        puts "  > Multiple available versions of '#{kernel}' detected:"
+        versions.each_with_index do |version, idx|
+          puts "      [#{idx}] #{version.version}"
+        end
+        print "  > Input the index of the version to use: "
+        choice = STDIN.gets.chomp
+
+        # If we got a valid choice, use it:
+        if choice == "#{choice.to_i}" and !versions[ choice.to_i ].nil? then
+          ret[ kernel ] = versions[ choice.to_i ]
+          break
+        end
+      end
+    end
+  end
+
+  # finally, return ret:
+  return ret
 end
 
 # Downloader with progress bar.
@@ -146,9 +180,9 @@ available_pkgs.each do |k,v|
   if !current_pkgs.key? k then
     to_download << v
 
-  # If the available version is greater than the current one, it has to be
+  # If the available version is different current one, it has to be
   # downloaded and the old one has to be deleted:
-  elsif v > current_pkgs[ k ] then
+  elsif v != current_pkgs[ k ] then
     to_download << v
     to_delete << current_pkgs[ k ]
 
