@@ -80,7 +80,7 @@ database = "#{repo}/zfs-kernels.db.tar.xz"
 config = File.open( "#{base}/kernels.conf" ).read.split.grep /^linux/
 
 # Current packages' file:
-@current_pkgs_file = Pathname.new "#{base}/.current"
+@current_pkgs_file = Pathname.new "#{repo}/.current"
 
 # Current packages':
 current_pkgs = Hash.new
