@@ -18,7 +18,11 @@ Simply running `zfs-kernels-update-repo` will download all the configured
 kernel packages within the `repo` subfolder.  
 There's an hardcoded value of 3600 seconds between actual refreshes, to
 avoid putting useless strain on archzfs' repo. However, should it be necessary,
-it can be bypassed using the parameter `--force`.  
+it can be bypassed using the parameter `--force` or `-f`.  
+If multiple versions of the same kernel are specified as a dependency, a prompt
+will be shown to choose which one to add to the repository. This can be avoided
+using the `--pick-newest` or `-n` parameter, which will pick by default the
+newest version available.  
 
 
 
@@ -26,6 +30,7 @@ it can be bypassed using the parameter `--force`.
 
 ##### Setup which kernel versions you want to be in your repo
 Kernel flavors to download can be set within `kernels.conf`.  
+You can `kernels.conf.sample` to `kernels.conf` for a starting configuration.  
 Every line matching `^linux` is considered an entry, while the rest is
 ignored.  
 

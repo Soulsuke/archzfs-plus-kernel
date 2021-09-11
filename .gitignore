@@ -1,4 +1,5 @@
 *.sw[op]
 *~
+kernels.conf
 repo/zfs-kernels
 

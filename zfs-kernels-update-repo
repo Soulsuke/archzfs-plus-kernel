@@ -2,6 +2,7 @@
 
 require "fileutils"
 require "open-uri"
+require "optparse"
 require "pathname"
 require "ruby-progressbar"
 require "xz"
@@ -14,7 +15,7 @@ require_relative "lib/arch_kernel.rb"
 ###############################################################################
 
 # Turns a given text into a hashmap of packages.
-def text_to_pkgs( text, regexp )
+def text_to_pkgs( text, regexp, pick_newest = false )
   # Return value container:
   ret = Hash.new
 
@@ -34,6 +35,10 @@ def text_to_pkgs( text, regexp )
     # If we only have one alternative, simply use it:
     if versions.length == 1 then
       ret[ kernel ] = versions[ 0 ]
+
+    # If we gotta pick the newest one, do so:
+    elsif pick_newest then
+      ret[ kernel ] = versions.sort.last
 
     # Else, prompt the user which one to choose:
     else
@@ -97,6 +102,35 @@ end
 ### Main logic                                                              ###
 ###############################################################################
 
+### Parse eventual parameters
+###############################################################################
+options = {
+  force: false,
+  pick_newest: false
+}
+
+# Parameters parser:
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0.split( /[\\\/]/ ).last} <switches>"
+
+  opts.on "-f", "--force-refresh", "Forces a database refresh" do
+    options[ :force ] = true
+  end
+
+  opts.on "-n", "--pick-newest", "Pick the newest kernel available" do
+    options[ :pick_newest ] = true
+  end
+
+  opts.on "-h", "--help", "Displays the help reference" do
+    puts opts
+    exit
+  end
+end
+
+parser.parse!
+
+
+
 ### Current versions retrieval
 ###############################################################################
 
@@ -110,8 +144,14 @@ repo = "#{base}/repo/zfs-kernels"
 FileUtils.mkpath repo
 database = "#{repo}/zfs-kernels.db.tar.xz"
 
+# Config file name:
+config = "#{base}/kernels.conf"
+
+# If this file does not exist, create it using the sample:
+FileUtils.cp "#{config}.sample", config unless File.exist? config
+
 # Get the kernels' configuration:
-config = File.open( "#{base}/kernels.conf" ).read.split.grep /^linux/
+config = File.open( config ).read.split.grep /^linux/
 
 # Current packages' file:
 @current_pkgs_file = Pathname.new "#{repo}/.current"
@@ -141,7 +181,7 @@ end
 # If the file is new enough, just quit:
 if @current_pkgs_file.exist? and
    (age = Time.now - @current_pkgs_file.ctime) < 3600 and
-   ARGV[ 0 ] != "--force"
+   !options[ :force ]
 then
   # Update the current packages' file:
   update_current current_pkgs.select { |k,v| config.include? k }.values
@@ -162,7 +202,8 @@ else
          "http://archzfs.com/archzfs/x86_64/archzfs.db"
        ).read
     ),
-    /(#{config.join "|"})=/
+    /(#{config.join "|"})=/,
+    options[ :pick_newest ]
   )
 end
 puts "  > Available packages: #{available_pkgs.values.join " "}"
