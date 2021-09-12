@@ -19,10 +19,9 @@ kernel packages within the `repo` subfolder.
 There's an hardcoded value of 3600 seconds between actual refreshes, to
 avoid putting useless strain on archzfs' repo. However, should it be necessary,
 it can be bypassed using the parameter `--force` or `-f`.  
-If multiple versions of the same kernel are specified as a dependency, a prompt
-will be shown to choose which one to add to the repository. This can be avoided
-using the `--pick-newest` or `-n` parameter, which will pick by default the
-newest version available.  
+For other flags. run `zfs-kernels-update-repo --help`.  
+Usually, the best combination for automated repo update would be:
+`zfs-kernels-update-repo --prefer-current --prefer-newest`.  
 
 
 

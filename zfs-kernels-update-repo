@@ -15,7 +15,7 @@ require_relative "lib/arch_kernel.rb"
 ###############################################################################
 
 # Turns a given text into a hashmap of packages.
-def text_to_pkgs( text, regexp, pick_newest = false )
+def text_to_pkgs( text, regexp, prefer_newest = false, preferred_version = {} )
   # Return value container:
   ret = Hash.new
 
@@ -26,18 +26,26 @@ def text_to_pkgs( text, regexp, pick_newest = false )
       .sort
       .map { |v| ArchKernel.new v }
       .each do |k|
-    ret[ k.name ] = Array.new unless ret.key? k.name
-    ret[ k.name ] << k
-  end
+        ret[ k.name ] = Array.new unless ret.key? k.name
+        ret[ k.name ] << k
+      end
 
   # Parse the kernels a little:
   ret.each do |kernel, versions|
+
     # If we only have one alternative, simply use it:
     if versions.length == 1 then
       ret[ kernel ] = versions[ 0 ]
 
-    # If we gotta pick the newest one, do so:
-    elsif pick_newest then
+    # If we have a preferred version, use it:
+    elsif preferred_version.any? and
+          !ret[ kernel ]
+            .select { |r| r == preferred_version[ kernel ] }.first.nil? then
+      ret[ kernel ] = ret[ kernel ]
+        .select { |r| r == preferred_version[ kernel ] }.first
+
+    # If we gotta prefer the newest version, do so:
+    elsif prefer_newest then
       ret[ kernel ] = versions.sort.last
 
     # Else, prompt the user which one to choose:
@@ -106,22 +114,30 @@ end
 ###############################################################################
 options = {
   force: false,
-  pick_newest: false
+  prefer_newest: false,
+  prefer_current: false
 }
 
 # Parameters parser:
 parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{$0.split( /[\\\/]/ ).last} <switches>"
 
-  opts.on "-f", "--force-refresh", "Forces a database refresh" do
+  opts.on "-f", "--force-refresh", "Forces a database refresh." do
     options[ :force ] = true
   end
 
-  opts.on "-n", "--pick-newest", "Pick the newest kernel available" do
-    options[ :pick_newest ] = true
+  opts.on "-n", "--prefer-newest",
+          "If more kernel versions are available, prefer the newest one." do
+    options[ :prefer_newest ] = true
   end
 
-  opts.on "-h", "--help", "Displays the help reference" do
+  opts.on "-p", "--prefer-current",
+          "If more kernel versions are available, prefer the current one if " +
+            "available. Takes priority on --prefer-newest." do
+    options[ :prefer_current ] = true
+  end
+
+  opts.on "-h", "--help", "Prints the help reference." do
     puts opts
     exit
   end
@@ -196,6 +212,10 @@ if config.empty? then
 
 # Otherwise find the available packages:
 else
+  # Eventual preferred version:
+  preferred = Hash.new unless options[ :prefer_current ]
+  preferred = current_pkgs if options[ :prefer_current ]
+
   available_pkgs = text_to_pkgs(
      XZ.decompress(
        download_with_progressbar(
@@ -203,7 +223,8 @@ else
        ).read
     ),
     /(#{config.join "|"})=/,
-    options[ :pick_newest ]
+    options[ :prefer_newest ],
+    preferred
   )
 end
 puts "  > Available packages: #{available_pkgs.values.join " "}"
