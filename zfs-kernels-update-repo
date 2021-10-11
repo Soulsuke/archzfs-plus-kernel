@@ -5,6 +5,7 @@ require "open-uri"
 require "optparse"
 require "pathname"
 require "ruby-progressbar"
+require "timeout"
 require "xz"
 require_relative "lib/arch_kernel.rb"
 
@@ -52,12 +53,22 @@ def text_to_pkgs( text, regexp, prefer_newest = false, preferred_version = {} )
     else
       # Keep asking until we get a good input:
       loop do
+        choice = nil
         puts "  > Multiple available versions of '#{kernel}' detected:"
         versions.each_with_index do |version, idx|
           puts "      [#{idx}] #{version.version}"
         end
         print "  > Input the index of the version to use: "
-        choice = STDIN.gets.chomp
+
+        # Do not hang forever:
+        begin
+          Timeout::timeout 30 do
+            choice = STDIN.gets.chomp
+          end
+        rescue Timeout::Error
+          puts "", "Timed out."
+          exit -1
+        end
 
         # If we got a valid choice, use it:
         if choice == "#{choice.to_i}" and !versions[ choice.to_i ].nil? then
