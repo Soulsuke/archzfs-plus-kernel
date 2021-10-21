@@ -167,6 +167,33 @@ base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
 # Repository's path:
 repo = "#{base}/repo/zfs-kernels"
 
+# Lock file:
+lock = Pathname.new "#{repo}/lock"
+
+# If the lock file already exists:
+if lock.exist? then
+  # If the file has been created less than 5 minutes ago, it's valid and we
+  # should quit:
+  if Time.now - lock.ctime  <= (60 * 5) then
+    puts "Lock file #{lock} present! Is someone else running this script?"
+    exit -1
+  # Otherwise it's a stale lock file which should be deleted:
+  else
+    lock.delete
+  end
+end
+
+# If we got here, create the lock file:
+lock.write "lock"
+
+# Ensure signal interrupt won't break stuff:
+[ "INT", "TERM" ].each do |s|
+  Signal.trap s do
+    lock.delete
+    exit 0
+  end
+end
+
 # Database name:
 FileUtils.mkpath repo
 database = "#{repo}/zfs-kernels.db.tar.xz"
@@ -213,6 +240,7 @@ then
   # Update the current packages' file:
   update_current current_pkgs.select { |k,v| config.include? k }.values
   puts "Last check happened #{age.to_i} seconds ago, nothing to do."
+  lock.delete
   exit 0
 end
 
@@ -311,4 +339,7 @@ update_current to_download + to_be_kept
 # Fix repo permissions:
 `find "#{repo}" -type d -exec chmod 755 '{}' \\;`
 `find "#{repo}" -type f -exec chmod 644 '{}' \\;`
+
+# Finally, remove the lock file:
+lock.delete
 
