@@ -67,7 +67,7 @@ def text_to_pkgs( text, regexp, prefer_newest = false, preferred_version = {} )
           end
         rescue Timeout::Error
           puts "", "Timed out."
-          exit -1
+          clean_exit -1
         end
 
         # If we got a valid choice, use it:
@@ -115,6 +115,12 @@ def update_current( packages )
   end
 end
 
+# Exits removing the lock file.
+def clean_exit( outcome )
+  @lock.delete if !@lock.nil? and @lock.exist?
+  exit outcome
+end
+
 
 
 ###############################################################################
@@ -150,7 +156,7 @@ parser = OptionParser.new do |opts|
 
   opts.on "-h", "--help", "Prints the help reference." do
     puts opts
-    exit
+    clean_exit 0
   end
 end
 
@@ -168,178 +174,183 @@ base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
 repo = "#{base}/repo/zfs-kernels"
 
 # Lock file:
-lock = Pathname.new "#{repo}/lock"
+@lock = Pathname.new "#{repo}/lock"
 
 # If the lock file already exists:
-if lock.exist? then
+if @lock.exist? then
   # If the file has been created less than 5 minutes ago, it's valid and we
   # should quit:
-  if Time.now - lock.ctime  <= (60 * 5) then
-    puts "Lock file #{lock} present! Is someone else running this script?"
+  if Time.now - @lock.ctime  <= (60 * 5) then
+    puts "Lock file #{@lock} present! Is someone else running this script?"
     exit -1
   # Otherwise it's a stale lock file which should be deleted:
   else
-    lock.delete
+    @lock.delete
   end
 end
 
 # If we got here, create the lock file:
-lock.write "lock"
+@lock.write "lock"
 
 # Ensure signal interrupt won't break stuff:
 [ "INT", "TERM" ].each do |s|
   Signal.trap s do
-    lock.delete
-    exit 0
+    clean_exit 0
   end
 end
 
-# Database name:
-FileUtils.mkpath repo
-database = "#{repo}/zfs-kernels.db.tar.xz"
-
-# Config file name:
-config = "#{base}/kernels.conf"
-
-# If this file does not exist, create it using the sample:
-FileUtils.cp "#{config}.sample", config unless File.exist? config
-
-# Get the kernels' configuration:
-config = File.open( config ).read.split.grep /^linux/
-
-# Current packages' file:
-@current_pkgs_file = Pathname.new "#{repo}/.current"
-
-# Current packages':
-current_pkgs = Hash.new
-
-# If the file exists, read its contents:
-if @current_pkgs_file.exist? then
-  current_pkgs = text_to_pkgs @current_pkgs_file.read, /^linux.*/
-  puts "Current packages: #{current_pkgs.values.join " "}"
-end
-
-# Delete any current package which has been removed from the config and
-# remove it from the database:
-(current_pkgs.keys - config).each do |d|
-  puts "Removing package '#{d}'..."
-  [ "#{d}-headers", d ].each do |p|
-    `repo-remove #{database} #{p}`
-    Dir[ "#{repo}/#{p}-[0-9].*" ].map { |f| FileUtils.rm_rf f }
+# Let's ensure any kind of error won't leave a lock file behind:
+begin
+  # Database name:
+  FileUtils.mkpath repo
+  database = "#{repo}/zfs-kernels.db.tar.xz"
+  
+  # Config file name:
+  config = "#{base}/kernels.conf"
+  
+  # If this file does not exist, create it using the sample:
+  FileUtils.cp "#{config}.sample", config unless File.exist? config
+  
+  # Get the kernels' configuration:
+  config = File.open( config ).read.split.grep /^linux/
+  
+  # Current packages' file:
+  @current_pkgs_file = Pathname.new "#{repo}/.current"
+  
+  # Current packages':
+  current_pkgs = Hash.new
+  
+  # If the file exists, read its contents:
+  if @current_pkgs_file.exist? then
+    current_pkgs = text_to_pkgs @current_pkgs_file.read, /^linux.*/
+    puts "Current packages: #{current_pkgs.values.join " "}"
   end
-end
-
-### Available versions retrieval
-###############################################################################
-
-# If the file is new enough, just quit:
-if @current_pkgs_file.exist? and
-   (age = Time.now - @current_pkgs_file.ctime) < 3600 and
-   !options[ :force ]
-then
-  # Update the current packages' file:
-  update_current current_pkgs.select { |k,v| config.include? k }.values
-  puts "Last check happened #{age.to_i} seconds ago, nothing to do."
-  lock.delete
-  exit 0
-end
-
-
-# If the configuration is empty, this stays empty as well:
-if config.empty? then
-  available_pkgs = Hash.new
-
-# Otherwise find the available packages:
-else
-  # Eventual preferred version:
-  preferred = Hash.new unless options[ :prefer_current ]
-  preferred = current_pkgs if options[ :prefer_current ]
-
-  available_pkgs = text_to_pkgs(
-     XZ.decompress(
-       download_with_progressbar(
-         "http://archzfs.com/archzfs/x86_64/archzfs.db"
-       ).read
-    ),
-    /(#{config.join "|"})=/,
-    options[ :prefer_newest ],
-    preferred
-  )
-end
-puts "  > Available packages: #{available_pkgs.values.join " "}"
-
-### Find packages to download and to delete
-###############################################################################
-
-to_delete = Array.new
-to_download = Array.new
-to_be_kept = Array.new
-
-available_pkgs.each do |k,v|
-  # If this package is not present in the current ones, it has to be
-  # downloaded:
-  if !current_pkgs.key? k then
-    to_download << v
-
-  # If the available version is different current one, it has to be
-  # downloaded and the old one has to be deleted:
-  elsif v != current_pkgs[ k ] then
-    to_download << v
-    to_delete << current_pkgs[ k ]
-
-  # Everything else should be kept as it is:
+  
+  # Delete any current package which has been removed from the config and
+  # remove it from the database:
+  (current_pkgs.keys - config).each do |d|
+    puts "Removing package '#{d}'..."
+    [ "#{d}-headers", d ].each do |p|
+      `repo-remove #{database} #{p}`
+      Dir[ "#{repo}/#{p}-[0-9].*" ].map { |f| FileUtils.rm_rf f }
+    end
+  end
+  
+  ### Available versions retrieval
+  #############################################################################
+  
+  # If the file is new enough, just quit:
+  if @current_pkgs_file.exist? and
+     (age = Time.now - @current_pkgs_file.ctime) < 3600 and
+     !options[ :force ]
+  then
+    # Update the current packages' file:
+    update_current current_pkgs.select { |k,v| config.include? k }.values
+    puts "Last check happened #{age.to_i} seconds ago, nothing to do."
+    clean_exit 0
+  end
+  
+  
+  # If the configuration is empty, this stays empty as well:
+  if config.empty? then
+    available_pkgs = Hash.new
+  
+  # Otherwise find the available packages:
   else
-    to_be_kept << current_pkgs[ k ]
+    # Eventual preferred version:
+    preferred = Hash.new unless options[ :prefer_current ]
+    preferred = current_pkgs if options[ :prefer_current ]
+  
+    available_pkgs = text_to_pkgs(
+       XZ.decompress(
+         download_with_progressbar(
+           "http://archzfs.com/archzfs/x86_64/archzfs.db"
+         ).read
+      ),
+      /(#{config.join "|"})=/,
+      options[ :prefer_newest ],
+      preferred
+    )
   end
-end
-
-### Update the repository
-###############################################################################
-
-# If there's nothing to download or delete:
-if to_delete.empty? and to_download.empty? then
-  # Update the file's ctime, just to avoid issues:
-  FileUtils.touch @current_pkgs_file
-
-  # Show a message and quit:
-  puts "Already up to date, nothing to do."
-
-# Else, it's update time:
-else
-  # Delete the outdated packages:
-  to_delete.map { |d| d.packages.values.flatten }.flatten
-    .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
-
-  # Update the repository:
-  to_download.each do |d|
-    d.packages.each do |name, file_names|
-      file_names.each do |file_name|
-        # Download the package:
-        File.open "#{repo}/#{file_name}", "wb" do |f|
-          f.write(
-            download_with_progressbar(
-              "https://archive.archlinux.org/packages/l/#{name}/#{file_name}"
-            ).read
-          )
-
-          # Add it to the repo if needed:
-          unless file_name =~ /.sig$/ then
-            puts "Adding '#{file_name}' to 'zfs-kernels'..."
-            `repo-add #{database} #{repo}/#{file_name}`
+  puts "  > Available packages: #{available_pkgs.values.join " "}"
+  
+  ### Find packages to download and to delete
+  #############################################################################
+  
+  to_delete = Array.new
+  to_download = Array.new
+  to_be_kept = Array.new
+  
+  available_pkgs.each do |k,v|
+    # If this package is not present in the current ones, it has to be
+    # downloaded:
+    if !current_pkgs.key? k then
+      to_download << v
+  
+    # If the available version is different current one, it has to be
+    # downloaded and the old one has to be deleted:
+    elsif v != current_pkgs[ k ] then
+      to_download << v
+      to_delete << current_pkgs[ k ]
+  
+    # Everything else should be kept as it is:
+    else
+      to_be_kept << current_pkgs[ k ]
+    end
+  end
+  
+  ### Update the repository
+  #############################################################################
+  
+  # If there's nothing to download or delete:
+  if to_delete.empty? and to_download.empty? then
+    # Update the file's ctime, just to avoid issues:
+    FileUtils.touch @current_pkgs_file
+  
+    # Show a message and quit:
+    puts "Already up to date, nothing to do."
+  
+  # Else, it's update time:
+  else
+    # Delete the outdated packages:
+    to_delete.map { |d| d.packages.values.flatten }.flatten
+      .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
+  
+    # Update the repository:
+    to_download.each do |d|
+      d.packages.each do |name, file_names|
+        file_names.each do |file_name|
+          # Download the package:
+          File.open "#{repo}/#{file_name}", "wb" do |f|
+            f.write(
+              download_with_progressbar(
+                "https://archive.archlinux.org/packages/l/#{name}/#{file_name}"
+              ).read
+            )
+  
+            # Add it to the repo if needed:
+            unless file_name =~ /.sig$/ then
+              puts "Adding '#{file_name}' to 'zfs-kernels'..."
+              `repo-add #{database} #{repo}/#{file_name}`
+            end
           end
         end
       end
     end
   end
+  
+  # Update the current packages' file:
+  update_current to_download + to_be_kept
+  
+  # Fix repo permissions:
+  `find "#{repo}" -type d -exec chmod 755 '{}' \\;`
+  `find "#{repo}" -type f -exec chmod 644 '{}' \\;`
+
+# If something bad shuld happen, le'ts log it:
+rescue => e
+
 end
 
-# Update the current packages' file:
-update_current to_download + to_be_kept
-
-# Fix repo permissions:
-`find "#{repo}" -type d -exec chmod 755 '{}' \\;`
-`find "#{repo}" -type f -exec chmod 644 '{}' \\;`
-
 # Finally, remove the lock file:
-lock.delete
+clean_exit 0
 
