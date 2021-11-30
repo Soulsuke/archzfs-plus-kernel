@@ -173,6 +173,9 @@ base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
 # Repository's path:
 repo = "#{base}/repo/zfs-kernels"
 
+# Ensure it does exist:
+FileUtils.mkpath repo
+
 # Lock file:
 @lock = Pathname.new "#{repo}/lock"
 
