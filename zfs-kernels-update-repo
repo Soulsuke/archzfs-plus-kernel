@@ -319,26 +319,56 @@ begin
     to_delete.map { |d| d.packages.values.flatten }.flatten
       .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
   
+    # Container of files to add to the repository:
+    to_add = Array.new
+
     # Update the repository:
     to_download.each do |d|
       d.packages.each do |name, file_names|
         file_names.each do |file_name|
-          # Download the package:
-          File.open "#{repo}/#{file_name}", "wb" do |f|
-            f.write(
-              download_with_progressbar(
-                "https://archive.archlinux.org/packages/l/#{name}/#{file_name}"
-              ).read
-            )
-  
-            # Add it to the repo if needed:
-            unless file_name =~ /.sig$/ then
-              puts "Adding '#{file_name}' to 'zfs-kernels'..."
-              `repo-add #{database} #{repo}/#{file_name}`
+
+          # Gotta reset this:
+          current_attempt = 0
+
+          # Let's be sure no accidental errors won't stop us:
+          begin
+            # Download the package:
+            File.open "#{repo}/#{file_name}", "wb" do |f|
+              f.write(
+                download_with_progressbar(
+                  "https://archive.archlinux.org/packages/l/#{name}/" \
+                    "#{file_name}"
+                ).read
+              )
+
+              # Mark it as to be added to the repo if needed:
+              to_add << file_name unless file_name =~ /.sig$/
+            end
+
+          # Ensure we'll try again a few times:
+          rescue => e
+            # If we're within the threshold, sleep a while and retry:
+            if current_attempt <= 15 then
+              sleep 2 * current_attempt += 1
+              retry
+
+            # Otherwise we gotta stop:
+            else
+              # Clean up all downloaded files:
+              file_names.map { |f| FileUtils.rm_rf "#{repo}/#{f}" }
+
+              # Return this error:
+              raise "#{e.class} => Failed to retrieve 'l/#{name}/#{file_name}'"
             end
           end
         end
       end
+    end
+
+    # Once we get here, we can safely add all packages to the repository:
+    to_add.each do |package|
+      puts "Adding '#{package}' to 'zfs-kernels'..."
+      `repo-add #{database} #{repo}/#{package}`
     end
   end
   
@@ -349,9 +379,9 @@ begin
   `find "#{repo}" -type d -exec chmod 755 '{}' \\;`
   `find "#{repo}" -type f -exec chmod 644 '{}' \\;`
 
-# If something bad shuld happen, le'ts log it:
+# If something bad shuld happen, let's log it:
 rescue => e
-
+  puts "Error during update: #{e.message}"
 end
 
 # Finally, remove the lock file:
