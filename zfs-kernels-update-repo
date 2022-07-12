@@ -357,6 +357,9 @@ begin
               # Clean up all downloaded files:
               file_names.map { |f| FileUtils.rm_rf "#{repo}/#{f}" }
 
+              # Clean these up, just to be 100% sure:
+              to_add = Array.new
+
               # Return this error:
               raise "#{e.class} => Failed to retrieve 'l/#{name}/#{file_name}'"
             end
