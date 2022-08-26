@@ -6,82 +6,14 @@ require "optparse"
 require "pathname"
 require "ruby-progressbar"
 require "timeout"
-require "xz"
-require_relative "lib/arch_kernel.rb"
+require_relative "lib/pacman_db_parser"
+require_relative "lib/pacman_package"
 
 
 
 ###############################################################################
 ### Utility functions                                                       ###
 ###############################################################################
-
-# Turns a given text into a hashmap of packages.
-def text_to_pkgs( text, regexp, prefer_newest = false, preferred_version = {} )
-  # Return value container:
-  ret = Hash.new
-
-  # Find the available ArchKernels:
-  text.split
-      .grep( regexp )
-      .uniq
-      .sort
-      .map { |v| ArchKernel.new v }
-      .each do |k|
-        ret[ k.name ] = Array.new unless ret.key? k.name
-        ret[ k.name ] << k
-      end
-
-  # Parse the kernels a little:
-  ret.each do |kernel, versions|
-
-    # If we only have one alternative, simply use it:
-    if versions.length == 1 then
-      ret[ kernel ] = versions[ 0 ]
-
-    # If we have a preferred version, use it:
-    elsif preferred_version.any? and
-          !ret[ kernel ]
-            .select { |r| r == preferred_version[ kernel ] }.first.nil? then
-      ret[ kernel ] = ret[ kernel ]
-        .select { |r| r == preferred_version[ kernel ] }.first
-
-    # If we gotta prefer the newest version, do so:
-    elsif prefer_newest then
-      ret[ kernel ] = versions.sort.last
-
-    # Else, prompt the user which one to choose:
-    else
-      # Keep asking until we get a good input:
-      loop do
-        choice = nil
-        puts "  > Multiple available versions of '#{kernel}' detected:"
-        versions.each_with_index do |version, idx|
-          puts "      [#{idx}] #{version.version}"
-        end
-        print "  > Input the index of the version to use: "
-
-        # Do not hang forever:
-        begin
-          Timeout::timeout 30 do
-            choice = STDIN.gets.chomp
-          end
-        rescue Timeout::Error
-          puts "", "Timed out."
-          clean_exit -1
-        end
-
-        # If we got a valid choice, use it:
-        if choice == "#{choice.to_i}" and !versions[ choice.to_i ].nil? then
-          ret[ kernel ] = versions[ choice.to_i ]
-          break
-        end
-      end
-    end
-  end
-
-  # finally, return ret:
-  return ret
-end
 
 # Downloader with progress bar.
 def download_with_progressbar( url )
@@ -106,15 +38,6 @@ def download_with_progressbar( url )
     }
 end
 
-# Updates the current packages' file.
-def update_current( packages )
-  @current_pkgs_file.open "w" do |f|
-    packages.uniq.sort.each do |p|
-      f.puts "#{p}"
-    end
-  end
-end
-
 # Exits removing the lock file.
 def clean_exit( outcome )
   @lock.delete if !@lock.nil? and @lock.exist?
@@ -130,9 +53,7 @@ end
 ### Parse eventual parameters
 ###############################################################################
 options = {
-  force: false,
-  prefer_newest: false,
-  prefer_current: false
+  force: false
 }
 
 # Parameters parser:
@@ -141,17 +62,6 @@ parser = OptionParser.new do |opts|
 
   opts.on "-f", "--force-refresh", "Forces a database refresh." do
     options[ :force ] = true
-  end
-
-  opts.on "-n", "--prefer-newest",
-          "If more kernel versions are available, prefer the newest one." do
-    options[ :prefer_newest ] = true
-  end
-
-  opts.on "-p", "--prefer-current",
-          "If more kernel versions are available, prefer the current one if " +
-            "available. Takes priority on --prefer-newest." do
-    options[ :prefer_current ] = true
   end
 
   opts.on "-h", "--help", "Prints the help reference." do
@@ -206,7 +116,7 @@ end
 begin
   # Database name:
   FileUtils.mkpath repo
-  database = "#{repo}/zfs-kernels.db.tar.xz"
+  database = Pathname.new "#{repo}/zfs-kernels.db.tar.xz"
   
   # Config file name:
   config = "#{base}/kernels.conf"
@@ -216,26 +126,43 @@ begin
   
   # Get the kernels' configuration:
   config = File.open( config ).read.split.grep /^linux/
-  
-  # Current packages' file:
-  @current_pkgs_file = Pathname.new "#{repo}/.current"
-  
-  # Current packages':
+  puts "Config is set to: #{config.join}"
+
+  # We start off with no current packages:
   current_pkgs = Hash.new
-  
-  # If the file exists, read its contents:
-  if @current_pkgs_file.exist? then
-    current_pkgs = text_to_pkgs @current_pkgs_file.read, /^linux.*/
-    puts "Current packages: #{current_pkgs.values.join " "}"
+
+  # If the local database exists, read the current packages from it:
+  if database.exist? then
+    current_pkgs = PacmanDbParser.new( database.read )
+      .pkgs
+      .map { |p|
+        [ p.name, p ]
+      }.to_h
+
+    puts "Current packages:"
+    current_pkgs.each do |k,v|
+      puts "  #{k} => #{v.version}"
+    end
   end
-  
+
   # Delete any current package which has been removed from the config and
   # remove it from the database:
-  (current_pkgs.keys - config).each do |d|
+  (
+    current_pkgs.keys.filter { |k| k.match /^linux/ and !k.match /headers/ } -
+      config
+  ).each do |d|
     puts "Removing package '#{d}'..."
-    [ "#{d}-headers", d ].each do |p|
+    [
+      d,
+      "#{d}-headers",
+      "zfs-#{d}",
+      "zfs-#{d}-headers",
+      "zfs-#{d}-git",
+      "zfs-#{d}-git-headers"
+    ].each do |p|
+      puts "  > #{p}"
       `repo-remove #{database} #{p}`
-      Dir[ "#{repo}/#{p}-[0-9].*" ].map { |f| FileUtils.rm_rf f }
+      Dir[ "#{repo}/#{p}-[0-9]*" ].map { |f| FileUtils.rm_rf f }
     end
   end
   
@@ -243,62 +170,70 @@ begin
   #############################################################################
   
   # If the file is new enough, just quit:
-  if @current_pkgs_file.exist? and
-     (age = Time.now - @current_pkgs_file.ctime) < 3600 and
+  if database.exist? and
+     (age = Time.now - database.mtime) < 3600 and
      !options[ :force ]
   then
-    # Update the current packages' file:
-    update_current current_pkgs.select { |k,v| config.include? k }.values
     puts "Last check happened #{age.to_i} seconds ago, nothing to do."
     clean_exit 0
   end
   
-  
-  # If the configuration is empty, this stays empty as well:
-  if config.empty? then
-    available_pkgs = Hash.new
-  
-  # Otherwise find the available packages:
-  else
-    # Eventual preferred version:
-    preferred = Hash.new unless options[ :prefer_current ]
-    preferred = current_pkgs if options[ :prefer_current ]
-  
-    available_pkgs = text_to_pkgs(
-       XZ.decompress(
-         download_with_progressbar(
-           "http://archzfs.com/archzfs/x86_64/archzfs.db"
-         ).read
-      ),
-      /(#{config.join "|"})=/,
-      options[ :prefer_newest ],
-      preferred
-    )
+  # Fetch archzfs' repo db:
+  archzfs_db = PacmanDbParser.new(
+    download_with_progressbar(
+      "http://archzfs.com/archzfs/x86_64/archzfs.db"
+    ).read
+  )
+
+  # Whitelist of packages' names:
+  filter_names = [
+    "zfs-utils",
+    "zfs-utils-git",
+    "zfs-utils-rc"
+  ]
+  config.each do |k|
+    filter_names += [ "zfs-#{k}", "zfs-#{k}-headers", "zfs-#{k}-git",
+      "zfs-#{k}-git-headers" ]
   end
-  puts "  > Available packages: #{available_pkgs.values.join " "}"
-  
+  filter_names = filter_names.sort.uniq
+
+  # Process the found packages:
+  archzfs_pkgs = Array.new
+  puts "Packages on archzfs (and kernel dependencies) which match config:"
+  archzfs_db.data.each do |k,v|
+    if filter_names.include? k then
+      puts "  #{v[ :pkg ].name} => #{v[ :pkg ].version}"
+      archzfs_pkgs << v[ :pkg ]
+      unless v[ :k_depends ].nil? then
+        puts "    #{v[ :k_depends ].name} => #{v[ :k_depends ].version}"
+        archzfs_pkgs << v[ :k_depends ]
+      end
+    end
+  end
+  archzfs_pkgs = archzfs_pkgs.sort.uniq
+
   ### Find packages to download and to delete
   #############################################################################
   
   to_delete = Array.new
   to_download = Array.new
   to_be_kept = Array.new
-  
-  available_pkgs.each do |k,v|
+
+  archzfs_pkgs.each do |p|
     # If this package is not present in the current ones, it has to be
     # downloaded:
-    if !current_pkgs.key? k then
-      to_download << v
+    if !current_pkgs.key? p.name then
+      to_download << p
   
     # If the available version is different current one, it has to be
     # downloaded and the old one has to be deleted:
-    elsif v != current_pkgs[ k ] then
-      to_download << v
-      to_delete << current_pkgs[ k ]
+    elsif p.version != current_pkgs[ p.name ].version then
+      to_download << p
+      to_delete << current_pkgs[ p.name ]
   
     # Everything else should be kept as it is:
     else
-      to_be_kept << current_pkgs[ k ]
+      to_be_kept << current_pkgs[ p.name ]
     end
   end
   
@@ -308,7 +243,7 @@ begin
   # If there's nothing to download or delete:
   if to_delete.empty? and to_download.empty? then
     # Update the file's ctime, just to avoid issues:
-    FileUtils.touch @current_pkgs_file
+    FileUtils.touch database
   
     # Show a message and quit:
     puts "Already up to date, nothing to do."
@@ -316,7 +251,7 @@ begin
   # Else, it's update time:
   else
     # Delete the outdated packages:
-    to_delete.map { |d| d.packages.values.flatten }.flatten
+    to_delete.map { |d| d.package_files.values.flatten }.flatten
       .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
   
     # Container of files to add to the repository:
@@ -324,21 +259,24 @@ begin
 
     # Update the repository:
     to_download.each do |d|
-      d.packages.each do |name, file_names|
+      d.package_files.each do |name, file_names|
         file_names.each do |file_name|
-
           # Gotta reset this:
           current_attempt = 0
 
           # Let's be sure no accidental errors won't stop us:
           begin
+            # Linux kernels download url:
+            base_url = "https://archive.archlinux.org/packages/l/#{name}"
+            # archzfs download url:
+            unless d.name.match /^linux/ then
+              base_url = "http://archzfs.com/archzfs/x86_64"
+            end
+
             # Download the package:
             File.open "#{repo}/#{file_name}", "wb" do |f|
               f.write(
-                download_with_progressbar(
-                  "https://archive.archlinux.org/packages/l/#{name}/" \
-                    "#{file_name}"
-                ).read
+                download_with_progressbar( "#{base_url}/#{file_name}" ).read
               )
 
               # Mark it as to be added to the repo if needed:
@@ -374,9 +312,6 @@ begin
       `repo-add #{database} #{repo}/#{package}`
     end
   end
-  
-  # Update the current packages' file:
-  update_current to_download + to_be_kept
   
   # Fix repo permissions:
   `find "#{repo}" -type d -exec chmod 755 '{}' \\;`

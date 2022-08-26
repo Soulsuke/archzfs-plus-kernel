@@ -1,5 +1,10 @@
 # zfs-kernels
-A script to maintain a local repository for kernels needed by archzfs.  
+A script to maintain a local repository for kernels needed by archzfs and their
+relative ZFS packages.  
+
+**NOTE:** ZFS packages are mirrored because updates may force the kernel to
+update while leaving the headers behind, breaking any eventual dkms. This
+ensures it won't happen.  
 
 
 
@@ -20,8 +25,6 @@ There's an hardcoded value of 3600 seconds between actual refreshes, to
 avoid putting useless strain on archzfs' repo. However, should it be necessary,
 it can be bypassed using the parameter `--force` or `-f`.  
 For other flags. run `zfs-kernels-update-repo --help`.  
-Usually, the best combination for automated repo update would be:
-`zfs-kernels-update-repo --prefer-current --prefer-newest`.  
 
 
 
