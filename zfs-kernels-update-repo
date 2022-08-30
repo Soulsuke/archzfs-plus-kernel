@@ -117,6 +117,9 @@ begin
   # Database name:
   FileUtils.mkpath repo
   database = Pathname.new "#{repo}/zfs-kernels.db.tar.xz"
+
+  # Last chcek timestamp:
+  last_check = Pathname.new "#{repo}/.last_check"
   
   # Config file name:
   config = "#{base}/kernels.conf"
@@ -170,8 +173,8 @@ begin
   #############################################################################
   
   # If the file is new enough, just quit:
-  if database.exist? and
-     (age = Time.now - database.mtime) < 3600 and
+  if last_check.exist? and
+     (age = Time.now - last_check.mtime) < 3600 and
      !options[ :force ]
   then
     puts "Last check happened #{age.to_i} seconds ago, nothing to do."
@@ -242,8 +245,8 @@ begin
   
   # If there's nothing to download or delete:
   if to_delete.empty? and to_download.empty? then
-    # Update the file's ctime, just to avoid issues:
-    FileUtils.touch database
+    # Update the file's mtime, just to avoid issues:
+    FileUtils.touch last_check
   
     # Show a message and quit:
     puts "Already up to date, nothing to do."
