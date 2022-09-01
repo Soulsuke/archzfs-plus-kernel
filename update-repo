@@ -81,7 +81,7 @@ parser.parse!
 base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
 
 # Repository's path:
-repo = "#{base}/repo/zfs-kernels"
+repo = "#{base}/repo/archzfs-plus-kernel"
 
 # Ensure it does exist:
 FileUtils.mkpath repo
@@ -116,7 +116,7 @@ end
 begin
   # Database name:
   FileUtils.mkpath repo
-  database = Pathname.new "#{repo}/zfs-kernels.db.tar.xz"
+  database = Pathname.new "#{repo}/archzfs-plus-kernel.db.tar.xz"
 
   # Last chcek timestamp:
   last_check = Pathname.new "#{repo}/.last_check"
@@ -311,7 +311,7 @@ begin
 
     # Once we get here, we can safely add all packages to the repository:
     to_add.each do |package|
-      puts "Adding '#{package}' to 'zfs-kernels'..."
+      puts "Adding '#{package}' to 'archzfs-plus-kernel'..."
       `repo-add #{database} #{repo}/#{package}`
     end
   end

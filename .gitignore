@@ -1,5 +1,5 @@
 *.sw[op]
 *~
 kernels.conf
-repo/zfs-kernels
+repo/archzfs-plus-kernel
 
