@@ -160,8 +160,6 @@ begin
       "#{d}-headers",
       "zfs-#{d}",
       "zfs-#{d}-headers",
-      "zfs-#{d}-git",
-      "zfs-#{d}-git-headers"
     ].each do |p|
       puts "  > #{p}"
       `repo-remove #{database} #{p}`
@@ -191,12 +189,10 @@ begin
   # Whitelist of packages' names:
   filter_names = [
     "zfs-utils",
-    "zfs-utils-git",
     "zfs-utils-rc"
   ]
   config.each do |k|
-    filter_names += [ "zfs-#{k}", "zfs-#{k}-headers", "zfs-#{k}-git",
-      "zfs-#{k}-git-headers" ]
+    filter_names += [ "zfs-#{k}", "zfs-#{k}-headers" ]
   end
   filter_names = filter_names.sort.uniq
 
