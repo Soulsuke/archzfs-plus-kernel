@@ -129,7 +129,7 @@ begin
   
   # Get the kernels' configuration:
   config = File.open( config ).read.split.grep /^linux/
-  puts "Config is set to: #{config.join}"
+  puts "Config is set to: #{config.join " "}"
 
   # We start off with no current packages:
   current_pkgs = Hash.new
