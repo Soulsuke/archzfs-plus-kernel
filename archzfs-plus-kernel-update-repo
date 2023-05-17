@@ -200,23 +200,41 @@ begin
     end
   end
 
+  # Regex which matches all packages which should be kept:
+  pkgs_to_keep = (config[ :packages ] + extra_kernel_deps).uniq.sort
+  if pkgs_to_keep.empty? then
+    pkgs_to_keep = /WILLNOTMATCH/
+  else
+    pkgs_to_keep = /^((zfs-)?#{pkgs_to_keep.join "|"}(-headers)?$|zfs-utils)/
+  end
+
   # Delete any current package which has been removed from the config and
   # remove it from the database:
   current_pkgs
     .keys
-    .filter { |c| !c.match /^((zfs-)?#{(config[ :packages ] + extra_kernel_deps).join "|"}(-headers)?$|zfs-utils)/ }
+    .filter { |c| !c.match pkgs_to_keep }
     .each \
   do |pkg|
     puts "Removing package '#{pkg}'..."
     `repo-remove #{database} #{pkg}`
     Dir[ "#{repo}/#{pkg}-[0-9]*" ].map { |f| FileUtils.rm_rf f }
   end
+
+  # This tells us if the configuration changed enough we are missing some
+  # required packages:
+  config_updated = (
+    current_pkgs
+      .keys
+      .filter { |c| c.match pkgs_to_keep }.grep_v( /zfs/ ).empty? and 
+    !config[ :packages ].empty?
+  )
   
   ### Available versions retrieval
   #############################################################################
   
   # If the file is new enough, just quit:
-  if last_check.exist? and
+  if !config_updated and
+     last_check.exist? and
      (age = Time.now - last_check.mtime) <
        config[ :seconds_between_updates ] and
      !options[ :force ] \
@@ -232,22 +250,11 @@ begin
     ).read
   )
 
-  # Whitelist of packages' names:
-  filter_names = [
-    "zfs-utils",
-    "zfs-utils-git",
-    "zfs-utils-rc"
-  ]
-  config[ :packages ].each do |p|
-    filter_names += [ "zfs-#{p}", "zfs-#{p}-headers", "zfs-utils-#{p.split( "-" ).last}" ]
-  end
-  filter_names = filter_names.sort.uniq
-
   # Process the found packages:
   archzfs_pkgs = Array.new
   puts "Packages on archzfs (and kernel dependencies) which match config:"
   archzfs_db.data.each do |k,v|
-    if filter_names.include? k then
+    if k.match? pkgs_to_keep then
       puts "  #{v[ :pkg ].name} => #{v[ :pkg ].version}"
       archzfs_pkgs << v[ :pkg ]
       unless v[ :k_depends ].nil? then
