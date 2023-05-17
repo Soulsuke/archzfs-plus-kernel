@@ -1,19 +1,37 @@
 #! /usr/bin/env ruby
 
+# First off, force the Gemfile's path and setup bundler:
+ENV[ "BUNDLE_GEMFILE" ] = "#{__dir__}/Gemfile"
+require "bundler/setup"
+
+
+
 require "fileutils"
 require "open-uri"
 require "optparse"
 require "pathname"
 require "ruby-progressbar"
 require "timeout"
+require "yaml"
 require_relative "lib/pacman_db_parser"
 require_relative "lib/pacman_package"
+
+
+
 
 
 
 ###############################################################################
 ### Utility functions                                                       ###
 ###############################################################################
+
+# Exits removing the lock file.
+def clean_exit( outcome )
+  @lock.delete if !@lock.nil? and @lock.exist?
+  exit outcome
+end
+
+
 
 # Downloader with progress bar.
 def download_with_progressbar( url )
@@ -38,10 +56,41 @@ def download_with_progressbar( url )
     }
 end
 
-# Exits removing the lock file.
-def clean_exit( outcome )
-  @lock.delete if !@lock.nil? and @lock.exist?
-  exit outcome
+
+
+# Retrieves the configuration, handling eventual initial config creation and
+# migration from older versions.
+# Returns a hash.
+def get_config
+  # Config file name:
+  config = Pathname.new "#{__dir__}/config.yml"
+
+  # If the file exists, simply return its data as a hash:
+  return YAML.load_file config if config.file?
+
+  # If we get here we'll need the config sample:
+  sample_file = "#{config}.sample"
+  sample_config = YAML.load_file sample_file
+
+  # If the older config file is present, migrate it:
+  if File.exist? "kernels.conf" then
+    old_config = File.open( "kernels.conf" ).read.split.grep /^linux/
+    sample_config[ :packages ] = old_config
+    FileUtils.rm "kernels.conf"
+  end
+
+  # Write the new config file:
+  config.open "w" do |f|
+    f.puts \
+      "###",
+      "# For a complete reference see: #{sample_file}",
+      "###",
+      "",
+      sample_config.to_yaml
+  end
+
+  # Finally, return the config data:
+  return sample_config
 end
 
 
@@ -77,11 +126,8 @@ parser.parse!
 ### Current versions retrieval
 ###############################################################################
 
-# Get the base path:
-base = "#{Pathname.new( __FILE__ ).realpath.dirname}"
-
 # Repository's path:
-repo = "#{base}/repo/archzfs-plus-kernel"
+repo = "#{__dir__}/repo/archzfs-plus-kernel"
 
 # Ensure it does exist:
 FileUtils.mkpath repo
@@ -120,23 +166,29 @@ begin
 
   # Last chcek timestamp:
   last_check = Pathname.new "#{repo}/.last_check"
-  
-  # Config file name:
-  config = "#{base}/kernels.conf"
-  
-  # If this file does not exist, create it using the sample:
-  FileUtils.cp "#{config}.sample", config unless File.exist? config
-  
-  # Get the kernels' configuration:
-  config = File.open( config ).read.split.grep /^linux/
-  puts "Config is set to: #{config.join " "}"
 
-  # We start off with no current packages:
+  # Fetch the configuration:
+  config = get_config
+  puts "Config is set to: #{config}"
+
+  # We start off with no current packages and no extra kernel deps:
   current_pkgs = Hash.new
+  extra_kernel_deps = Array.new
 
   # If the local database exists, read the current packages from it:
   if database.exist? then
-    current_pkgs = PacmanDbParser.new( database.read )
+    database_data = PacmanDbParser.new database.read
+
+    # This is needed to avoid removing kernels needed by certain configurations
+    # (eg. linux-rc, linux-git):
+    extra_kernel_deps = database_data
+      .kernel_deps(
+        config[ :packages ]
+        .map { |p| [ p, "zfs-linux-#{p.split( "-" ).last}" ] }
+        .flatten
+      ).map { |d| d.name }
+
+    current_pkgs = database_data
       .pkgs
       .map { |p|
         [ p.name, p ]
@@ -150,21 +202,14 @@ begin
 
   # Delete any current package which has been removed from the config and
   # remove it from the database:
-  (
-    current_pkgs.keys.filter { |k| k.match /^linux/ and !k.match /headers/ } -
-      config
-  ).each do |d|
-    puts "Removing package '#{d}'..."
-    [
-      d,
-      "#{d}-headers",
-      "zfs-#{d}",
-      "zfs-#{d}-headers",
-    ].each do |p|
-      puts "  > #{p}"
-      `repo-remove #{database} #{p}`
-      Dir[ "#{repo}/#{p}-[0-9]*" ].map { |f| FileUtils.rm_rf f }
-    end
+  current_pkgs
+    .keys
+    .filter { |c| !c.match /^((zfs-)?#{(config[ :packages ] + extra_kernel_deps).join "|"}(-headers)?$|zfs-utils)/ }
+    .each \
+  do |pkg|
+    puts "Removing package '#{pkg}'..."
+    `repo-remove #{database} #{pkg}`
+    Dir[ "#{repo}/#{pkg}-[0-9]*" ].map { |f| FileUtils.rm_rf f }
   end
   
   ### Available versions retrieval
@@ -172,8 +217,9 @@ begin
   
   # If the file is new enough, just quit:
   if last_check.exist? and
-     (age = Time.now - last_check.mtime) < 3600 and
-     !options[ :force ]
+     (age = Time.now - last_check.mtime) <
+       config[ :seconds_between_updates ] and
+     !options[ :force ] \
   then
     puts "Last check happened #{age.to_i} seconds ago, nothing to do."
     clean_exit 0
@@ -189,10 +235,11 @@ begin
   # Whitelist of packages' names:
   filter_names = [
     "zfs-utils",
+    "zfs-utils-git",
     "zfs-utils-rc"
   ]
-  config.each do |k|
-    filter_names += [ "zfs-#{k}", "zfs-#{k}-headers" ]
+  config[ :packages ].each do |p|
+    filter_names += [ "zfs-#{p}", "zfs-#{p}-headers", "zfs-utils-#{p.split( "-" ).last}" ]
   end
   filter_names = filter_names.sort.uniq
 
@@ -310,6 +357,9 @@ begin
       puts "Adding '#{package}' to 'archzfs-plus-kernel'..."
       `repo-add #{database} #{repo}/#{package}`
     end
+
+    # Once everything's ready, update the last_check file:
+    FileUtils.touch last_check
   end
   
   # Fix repo permissions:
@@ -318,7 +368,7 @@ begin
 
 # If something bad shuld happen, let's log it:
 rescue => e
-  puts "Error during update: #{e.message}"
+  puts "Error during update: #{e.message}", e.backtrace
 end
 
 # Finally, remove the lock file:

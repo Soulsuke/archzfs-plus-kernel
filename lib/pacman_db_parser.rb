@@ -61,10 +61,10 @@ class PacmanDbParser
             next_info = nil
 
           elsif !next_info.nil? then
-            if next_info == :k_depends and l.match /linux/ and
-               !l.match /spl/ \
-            then
-              @data[ -1 ][ :k_depends ] = PacmanPackage.new l
+            if next_info == :k_depends then
+              if l.match /linux/ and  !l.match /spl/ then
+                @data[ -1 ][ :k_depends ] = PacmanPackage.new l
+              end
             else
               @data[ -1 ][ next_info ] = l
               if :version == next_info then
@@ -89,8 +89,18 @@ class PacmanDbParser
     return @data.map { |k,v| v[ :pkg ] }
   end
 
-  def kernel_deps
-    return @data.map { |k,v| v[ :k_depends ] }.sort.uniq
+  def kernel_deps( of_packages )
+    # Data we need info on:
+    data = @data
+
+    # If we need info only of certain packages, filter the data:
+    of_packages = [ of_packages ] if of_packages.is_a? String
+    if of_packages.is_a? Array then
+      data = data.filter { |k,v| of_packages.include? k }
+    end
+
+    # Then return the kernel_deps:
+    return data.map { |k,v| v[ :k_depends ] }.filter { |v| !v.nil? }.sort.uniq
   end
  
   def pkgs_with_kernel_deps

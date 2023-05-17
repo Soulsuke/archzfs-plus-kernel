@@ -1,0 +1,10 @@
+# Packages to download.
+# Usually these have the same of kernel packages (eg. linux, linux-zen), but
+# may differ in certain cases (eg. linux-git, linux-rc).
+:packages:
+ - linux
+
+# Won't fetch archzfs' repository if the last update has been performed less
+# than this amount of seconds ago:
+:seconds_between_updates: 3600
+

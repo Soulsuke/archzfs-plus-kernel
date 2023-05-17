@@ -1,5 +1,14 @@
+# Potential tmp files:
 *.sw[op]
 *~
-kernels.conf
-repo/archzfs-plus-kernel
+
+# Bundler's stuff:
+/.bundle/*
+/vendor/*
+
+# Repository files:
+/repo/*
+
+# Personal configuration:
+/config.yml
 

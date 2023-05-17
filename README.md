@@ -8,33 +8,21 @@ ensures it won't happen.
 
 
 
-### Requirements
-The following ruby gems are required:  
-
-* ruby-progressbar  
-* ruby-xz  
-
-They can be installed with `gem install ruby-progressbar ruby-xz`.  
-
-
-
 ### Usage
+Install dependencies via `bundle install`.  
 Simply running `archzfs-plus-kernel-update-repo` will download all the
 configured kernel package into the `repo` subfolder.  
-There's an hardcoded value of 3600 seconds between actual refreshes, to
-avoid putting useless strain on archzfs' repo. However, should it be necessary,
-it can be bypassed using the parameter `--force` or `-f`.  
-For other flags. run `archzfs-plus-kernel-update-repo --help`.  
+Should it be necessary to force an update ignoring the
+`seconds_between_updates` setting, use the `--force` (or `-f`) parameter.  
+For other flags run `archzfs-plus-kernel-update-repo --help`.  
 
 
 
 ### Configuration
 
 ##### Setup which kernel versions you want to be in your repo
-Kernel flavors to download can be set within `kernels.conf`.  
-You can `kernels.conf.sample` to `kernels.conf` for a starting configuration.  
-Every line matching `^linux` is considered an entry, while the rest is
-ignored.  
+Kernel flavors to download can be set within `config.yml`.  
+You can copy `config.yml.sample` to `config.yml` as a starting configuration.  
 
 ##### Setup a custom hostname
 Within `/etc/hosts` add the desired hostname:  
