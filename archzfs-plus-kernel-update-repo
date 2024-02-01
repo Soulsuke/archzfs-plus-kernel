@@ -202,7 +202,8 @@ begin
   if pkgs_to_keep.empty? then
     pkgs_to_keep = /WILLNOTMATCH/
   else
-    pkgs_to_keep = /^((zfs-)?#{pkgs_to_keep.join "|"}(-headers)?$|zfs-utils)/
+    pkgs_to_keep =
+      /^(((zfs-)?(#{pkgs_to_keep.join "|"})(-headers)?)$|zfs-utils.*)/
   end
 
   # Delete any current package which has been removed from the config and
