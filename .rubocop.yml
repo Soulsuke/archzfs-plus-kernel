@@ -1,0 +1,221 @@
+AllCops:
+  Exclude:
+    - "vendor/**/*"
+  UseCache: false
+  DefaultFormatter: progress
+  DisplayStyleGuide: true
+  DisplayCopNames: true
+  TargetRubyVersion: 3.3
+  NewCops: enable
+
+
+
+###############################################################################
+### Metrics                                                                 ###
+### Reference: https://docs.rubocop.org/rubocop/cops_metrics.html           ###
+###############################################################################
+
+Metrics/AbcSize:
+  Enabled: false
+
+Metrics/BlockLength:
+  Enabled: false
+
+Metrics/ClassLength:
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
+  Enabled: false
+
+Metrics/MethodLength:
+  Enabled: false
+
+Metrics/PerceivedComplexity:
+  Enabled: false
+
+
+
+###############################################################################
+### Style                                                                   ###
+### Reference: https://docs.rubocop.org/rubocop/cops_style.html             ###
+###############################################################################
+
+# As and/or and &&/|| have different priorities, this one could be potentially
+# dangerous to enable at this point in time.
+Style/AndOr:
+  Enabled: false
+
+Style/BlockComments:
+  Enabled: false
+
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
+# This one is tricky.
+# It is useless sometimes within rails (eg. controller methods), but it's
+# quite useful in custom classes or non-restful controller routes.
+# Maybe we could avoid enforcing it, but always add a comment in certain cases
+# as our internal practice?
+# Either that or we leave this enabled and add an empty comment over certain
+# methods (see: Layout/EmptyComments).
+#
+# NOTE: this is mostly due to a lack of documentation. Maybe we can leave some
+# important traces/hints this way? Even if just as a temporary measure.
+Style/DocumentationMethod:
+  Enabled: true
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/NumericPredicate:
+  Enabled: false
+
+Style/NumericLiterals:
+  Enabled: false
+
+Style/Lambda:
+  EnforcedStyle: lambda
+
+Style/MultilineIfThen:
+  Enabled: false
+
+# Your call if you want to keep using the `return` keyword or not.
+# Usually I rather put it in to show I actually wanted to return something and
+# it's not just an error/leftover/something that got saved after I've been
+# interrupted.
+#
+# If you wanna keep this enabled, however, please keep the
+# AllowMultipleReturnValues part set to true :p
+Style/RedundantReturn:
+  Enabled: false
+  AllowMultipleReturnValues: true
+
+# Just to be sure they won't get removed:
+Style/RedundantSelf:
+  Enabled: false
+
+# This is bloody mandatory when using certain external libraries (shame on you
+# Google Cloud API) which throw a StandardError when they fail.
+# It has probably been corrected on their side since then, but this breaks a
+# few older projects.
+Style/RescueStandardError:
+  Enabled: true
+  EnforcedStyle: implicit
+
+# Because yes.
+Style/SymbolArray:
+  Enabled: true
+  EnforcedStyle: brackets
+  MinSize: 1
+
+# Because yes.
+Style/StringLiterals:
+  Enabled: true
+  EnforcedStyle: double_quotes
+  ConsistentQuotesInMultiline: true
+
+# This is just to be consistent: I'm fine with pushing for unless instead of
+# if !, but shouldn't this apply to cases with an else as well?
+Style/UnlessElse:
+  Enabled: false
+
+# Because yes.
+Style/WordArray:
+  Enabled: true
+  EnforcedStyle: brackets
+  MinSize: 1
+
+# Because yes.
+Style/YodaCondition:
+  EnforcedStyle: require_for_equality_operators_only
+
+
+
+###############################################################################
+### Layout                                                                  ###
+### Reference: https://docs.rubocop.org/rubocop/cops_layout.html            ###
+###############################################################################
+
+Layout/AccessModifierIndentation:
+  Enabled: true
+  EnforcedStyle: indent
+  IndentationWidth: 2
+
+Layout/ArgumentAlignment:
+  Enabled: true
+  EnforcedStyle: with_fixed_indentation
+  IndentationWidth: 2
+
+Layout/CaseIndentation:
+  Enabled: false
+
+# Sory, but this is just too useful sometimes :p
+Layout/EmptyComment:
+  Enabled: true
+  AllowBorderComment: true
+  AllowMarginComment: true
+
+Layout/EmptyLinesAroundClassBody:
+  EnforcedStyle: empty_lines_except_namespace
+
+Layout/EmptyLinesAroundModuleBody:
+  EnforcedStyle: empty_lines_except_namespace
+
+Layout/EmptyLineBetweenDefs:
+  NumberOfEmptyLines: 3
+
+Layout/EmptyLines:
+  Enabled: false
+
+# This one is useful if you ever need to touch your code on a server and there
+# is a weird ssh session going on which truncates characters after a certain
+# limit.
+#
+# I'd rather this limit to be 79 characters, but I'm fine as log as it gets
+# set within a human limit (less than 200).
+Layout/LineLength:
+  Max: 79
+
+Layout/MultilineMethodCallIndentation:
+  EnforcedStyle: indented
+  IndentationWidth: 2
+
+Layout/MultilineOperationIndentation:
+  EnforcedStyle: indented
+
+# This breaks stuff if enabled, causing an endless loop. Wonder why, but I
+# guess it can stay disabled.
+Layout/SpaceAroundBlockParameters:
+  Enabled: false
+
+Layout/SpaceInsideArrayLiteralBrackets:
+  Enabled: true
+  EnforcedStyle: space
+
+Layout/SpaceInsideReferenceBrackets:
+  Enabled: true
+  EnforcedStyle: space
+
+Layout/SpaceInsideParens:
+  Enabled: true
+  EnforcedStyle: space
+
+Layout/TrailingEmptyLines:
+  Enabled: true
+  EnforcedStyle: final_blank_line
+
+
+
+###############################################################################
+### Lint                                                                    ###
+### Reference: https://docs.rubocop.org/rubocop/cops_lint.html              ###
+###############################################################################
+
+# Because sometimes it's necessary:
+Lint/SuppressedException:
+  Enabled: true
+  AllowNil: true
+

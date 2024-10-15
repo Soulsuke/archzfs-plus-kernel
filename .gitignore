@@ -1,6 +1,7 @@
 # Potential tmp files:
 *.sw[op]
 *~
+*1
 
 # Bundler's stuff:
 /.bundle/*

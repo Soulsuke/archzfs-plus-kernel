@@ -19,6 +19,16 @@ require_relative "lib/pacman_package"
 
 
 ###############################################################################
+### Constants                                                               ###
+###############################################################################
+
+# Main repo url:
+ARCHZFS = "https://github.com/archzfs/archzfs/releases/download/experimental"
+  .freeze
+
+
+
+###############################################################################
 ### Utility functions                                                       ###
 ###############################################################################
 
@@ -40,7 +50,7 @@ def download_with_progressbar( url )
     total: nil,
     format: "  > %a%e %B %p%% %r KB/sec",
     rate_scale: lambda { |rate| rate / 1024 }
- 
+
   return URI.open url,
     content_length_proc: Proc.new { |content_length|
       bar.total = content_length
@@ -223,13 +233,13 @@ begin
   config_updated = (
     current_pkgs
       .keys
-      .filter { |c| c.match pkgs_to_keep }.grep_v( /zfs/ ).empty? and 
+      .filter { |c| c.match pkgs_to_keep }.grep_v( /zfs/ ).empty? and
     !config[ :packages ].empty?
   )
-  
+
   ### Available versions retrieval
   #############################################################################
-  
+
   # If the file is new enough, just quit:
   if !config_updated and
      last_check.exist? and
@@ -240,12 +250,10 @@ begin
     puts "Last check happened #{age.to_i} seconds ago, nothing to do."
     clean_exit 0
   end
-  
+
   # Fetch archzfs' repo db:
   archzfs_db = PacmanDbParser.new(
-    download_with_progressbar(
-      "http://archzfs.com/archzfs/x86_64/archzfs.db"
-    ).read
+    download_with_progressbar( "#{ARCHZFS}/archzfs.db" ).read
   )
 
   # Process the found packages:
@@ -265,7 +273,7 @@ begin
 
   ### Find packages to download and to delete
   #############################################################################
-  
+
   to_delete = Array.new
   to_download = Array.new
   to_be_kept = Array.new
@@ -275,36 +283,36 @@ begin
     # downloaded:
     if !current_pkgs.key? p.name then
       to_download << p
-  
+
     # If the available version is different current one, it has to be
     # downloaded and the old one has to be deleted:
     elsif p.version != current_pkgs[ p.name ].version then
       to_download << p
       to_delete << current_pkgs[ p.name ]
-  
+
     # Everything else should be kept as it is:
     else
       to_be_kept << current_pkgs[ p.name ]
     end
   end
-  
+
   ### Update the repository
   #############################################################################
-  
+
   # If there's nothing to download or delete:
   if to_delete.empty? and to_download.empty? then
     # Update the file's mtime, just to avoid issues:
     FileUtils.touch last_check
-  
+
     # Show a message and quit:
     puts "Already up to date, nothing to do."
-  
+
   # Else, it's update time:
   else
     # Delete the outdated packages:
     to_delete.map { |d| d.package_files.values.flatten }.flatten
       .map { |d| FileUtils.rm_rf "#{repo}/#{d}" }
-  
+
     # Container of files to add to the repository:
     to_add = Array.new
 
@@ -321,7 +329,7 @@ begin
             base_url = "https://archive.archlinux.org/packages/l/#{name}"
             # archzfs download url:
             unless d.name.match /^linux/ then
-              base_url = "http://archzfs.com/archzfs/x86_64"
+              base_url = "#{ARCHZFS}"
             end
 
             # Download the package:
@@ -366,7 +374,7 @@ begin
     # Once everything's ready, update the last_check file:
     FileUtils.touch last_check
   end
-  
+
   # Fix repo permissions:
   `find "#{repo}" -type d -exec chmod 755 '{}' \\;`
   `find "#{repo}" -type f -exec chmod 644 '{}' \\;`
